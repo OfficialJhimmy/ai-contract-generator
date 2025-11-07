@@ -1,9 +1,11 @@
-/* @tailwind base;
-@tailwind components;
-@tailwind utilities; */
-
 @import "tailwindcss";
 
+/* First Read Brand Variables */
+:root {
+  --brand-primary: #2563eb;
+  --brand-secondary: #7c3aed;
+  --brand-accent: #06b6d4;
+}
 
 body {
   margin: 0;
@@ -19,37 +21,138 @@ body {
     @apply antialiased;
   }
   
-  /* Prose styles for contract display */
-  .prose {
-    @apply text-gray-800;
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
   
-  .prose h1 {
-    @apply text-3xl font-bold mt-8 mb-4 text-gray-900;
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-900;
   }
   
-  .prose h2 {
-    @apply text-2xl font-semibold mt-6 mb-3 text-gray-900 border-b border-gray-200 pb-2;
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-700 rounded-full;
   }
   
-  .prose h3 {
-    @apply text-xl font-medium mt-4 mb-2 text-gray-800;
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-600;
+  }
+}
+
+@layer components {
+  /* Contract Content Styling */
+  .contract-content {
+    @apply text-gray-800 dark:text-gray-200;
   }
   
-  .prose p {
+  .contract-content h1 {
+    @apply text-3xl font-bold mt-8 mb-4 text-gray-900 dark:text-gray-100;
+  }
+  
+  .contract-content h2 {
+    @apply text-2xl font-semibold mt-6 mb-3 text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 pb-2;
+  }
+  
+  .contract-content h3 {
+    @apply text-xl font-medium mt-4 mb-2 text-gray-800 dark:text-gray-200;
+  }
+  
+  .contract-content p {
     @apply mb-4 leading-relaxed text-justify;
   }
   
-  .prose ol,
-  .prose ul {
-    @apply mb-4 pl-6;
+  .contract-content ol,
+  .contract-content ul {
+    @apply mb-4 pl-6 space-y-2;
   }
   
-  .prose li {
+  .contract-content li {
     @apply mb-2;
   }
   
-  .prose strong {
-    @apply font-semibold text-gray-900;
+  .contract-content strong {
+    @apply font-semibold text-gray-900 dark:text-gray-100;
+  }
+  
+  .contract-content em {
+    @apply italic;
+  }
+  
+  .contract-content code {
+    @apply px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-sm font-mono;
+  }
+  
+  .contract-content table {
+    @apply w-full border-collapse my-4;
+  }
+  
+  .contract-content th,
+  .contract-content td {
+    @apply border border-gray-200 dark:border-gray-700 px-4 py-2;
+  }
+  
+  .contract-content th {
+    @apply bg-gray-50 dark:bg-gray-900 font-semibold;
+  }
+  
+  /* Prose styles for light mode */
+  .prose {
+    @apply max-w-none;
+  }
+  
+  /* Prose styles for dark mode */
+  .prose-invert {
+    @apply text-gray-200;
+  }
+  
+  .prose-invert h1,
+  .prose-invert h2,
+  .prose-invert h3,
+  .prose-invert h4,
+  .prose-invert h5,
+  .prose-invert h6 {
+    @apply text-gray-100;
+  }
+  
+  .prose-invert strong {
+    @apply text-gray-100;
+  }
+  
+  .prose-invert a {
+    @apply text-blue-400;
+  }
+  
+  .prose-invert code {
+    @apply text-gray-200 bg-gray-800;
+  }
+}
+
+@layer utilities {
+  /* Custom animations */
+  @keyframes pulse-slow {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Smooth transitions */
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
