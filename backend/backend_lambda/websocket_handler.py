@@ -1,15 +1,17 @@
 """
-WebSocket handler for real-time contract streaming with chunked delivery
+WebSocket handler - Optimized for real-time streaming
 """
 
 import json
 import os
 import boto3
-from handler import generate_contract_streaming, validate_input
+from handler_optimized import (
+    generate_contract_streaming, 
+    validate_input,
+    get_anthropic_client
+)
 
-# API Gateway Management API client
 apigateway_management_api = None
-
 
 def get_api_gateway_client(event):
     """Initialize API Gateway Management API client"""
@@ -29,7 +31,7 @@ def get_api_gateway_client(event):
 
 
 def send_message(connection_id, data, event):
-    """Send message to WebSocket client"""
+    """Send message to WebSocket client with error handling"""
     try:
         client = get_api_gateway_client(event)
         client.post_to_connection(
@@ -69,95 +71,91 @@ def default_handler(event, context):
 
 def message_handler(event, context):
     """
-    Handle WebSocket messages - generate contract with chunked streaming
-    to avoid API Gateway 30-second timeout
+    Handle WebSocket messages - OPTIMIZED for speed
+    Streams chunks immediately as they're generated
     """
     connection_id = event['requestContext']['connectionId']
     
     print(f"WebSocket message handler called for connection: {connection_id}")
     
     try:
-        # Parse message body
         body = json.loads(event.get('body', '{}'))
         action = body.get('action', '')
         prompt = body.get('prompt', '')
+        target_pages = body.get('target_pages', 10)
         
         print(f"Action: {action}, Prompt: {prompt[:100] if prompt else 'none'}")
         
-        # Validate action
         if action != 'generate':
-            print(f"Unknown action: {action}")
             send_message(connection_id, {
                 'type': 'error',
                 'error': f'Unknown action: {action}'
             }, event)
             return {'statusCode': 400}
         
-        # Validate prompt
         validation_error = validate_input(prompt)
         if validation_error:
-            print(f"Validation error: {validation_error}")
             send_message(connection_id, {
                 'type': 'error',
                 'error': validation_error
             }, event)
             return {'statusCode': 400}
         
-        # Send start notification
-        print("Sending start notification...")
+        # Send start notification immediately
         send_message(connection_id, {
             'type': 'start',
-            'message': 'Contract generation started...'
+            'message': 'Generating contract...'
         }, event)
         
-        # Generate contract (this can take 30-60+ seconds)
-        print("Starting contract generation...")
-        result = generate_contract_streaming(prompt)
+        # Stream chunks in real-time
+        print("Starting real-time streaming...")
+        stream = generate_contract_streaming(prompt, target_pages)
         
-        if result['success']:
-            print(f"Generation successful, content length: {len(result['content'])}")
-            
-            # CRITICAL: Send content in chunks to keep connection alive
-            content = result['content']
-            chunk_size = 30000  # ~30KB chunks
-            
-            if len(content) > chunk_size:
-                print(f"Sending large content in chunks...")
-                for i in range(0, len(content), chunk_size):
-                    chunk = content[i:i+chunk_size]
-                    is_last = i + chunk_size >= len(content)
+        accumulated = ""
+        chunk_buffer = ""
+        CHUNK_SIZE = 50  # Characters per chunk
+        
+        try:
+            with stream as s:
+                for text in s.text_stream:
+                    chunk_buffer += text
+                    accumulated += text
                     
+                    # Send chunks when buffer reaches size
+                    if len(chunk_buffer) >= CHUNK_SIZE:
+                        send_message(connection_id, {
+                            'type': 'chunk',
+                            'content': chunk_buffer
+                        }, event)
+                        chunk_buffer = ""
+                
+                # Send remaining buffer
+                if chunk_buffer:
                     send_message(connection_id, {
                         'type': 'chunk',
-                        'content': chunk,
-                        'is_last': is_last,
-                        'chunk_index': i // chunk_size
+                        'content': chunk_buffer
                     }, event)
-                    
-                print(f"Sent content in {(len(content) // chunk_size) + 1} chunks")
-            else:
-                # Send as single message if small enough
-                send_message(connection_id, {
-                    'type': 'content',
-                    'content': content,
-                    'metadata': result['metadata']
-                }, event)
-            
-            # Send completion
-            send_message(connection_id, {
-                'type': 'complete',
-                'message': 'Contract generated successfully',
-                'metadata': result['metadata']
-            }, event)
-            
-            return {'statusCode': 200}
-        else:
-            print("Generation failed")
+        
+        except Exception as stream_error:
+            print(f"Streaming error: {str(stream_error)}")
             send_message(connection_id, {
                 'type': 'error',
-                'error': 'Generation failed'
+                'error': f'Streaming error: {str(stream_error)}'
             }, event)
             return {'statusCode': 500}
+        
+        # Send completion
+        send_message(connection_id, {
+            'type': 'complete',
+            'message': 'Contract generated successfully',
+            'metadata': {
+                'length': len(accumulated),
+                'chunks_sent': True
+            }
+        }, event)
+        
+        print(f"Streaming complete. Total length: {len(accumulated)}")
+        return {'statusCode': 200}
         
     except json.JSONDecodeError as e:
         print(f"JSON decode error: {str(e)}")
@@ -185,10 +183,8 @@ def lambda_handler(event, context):
     print(f"WebSocket event received: {json.dumps(event, default=str)}")
     
     route_key = event['requestContext']['routeKey']
-    
     print(f"Route: {route_key}")
     
-    # Route to appropriate handler
     if route_key == '$connect':
         return connection_handler(event, context)
     elif route_key == '$disconnect':
