@@ -1,5 +1,5 @@
 """
-WebSocket handler for real-time contract streaming
+WebSocket handler for real-time contract streaming with chunked delivery
 """
 
 import json
@@ -7,7 +7,7 @@ import os
 import boto3
 from handler import generate_contract_streaming, validate_input
 
-# API Gateway Management API client (for sending messages to WebSocket clients)
+# API Gateway Management API client
 apigateway_management_api = None
 
 
@@ -46,42 +46,32 @@ def send_message(connection_id, data, event):
 
 
 def connection_handler(event, context):
-    """Handle WebSocket connection - CRITICAL: Must return exact format"""
+    """Handle WebSocket connection"""
     connection_id = event['requestContext']['connectionId']
-    
     print(f"WebSocket $connect: {connection_id}")
-    
-    # AWS API Gateway WebSocket requires this EXACT response format
-    return {
-        'statusCode': 200
-    }
+    return {'statusCode': 200}
 
 
 def disconnection_handler(event, context):
     """Handle WebSocket disconnection"""
     connection_id = event['requestContext']['connectionId']
-    
     print(f"WebSocket $disconnect: {connection_id}")
-    
-    return {
-        'statusCode': 200
-    }
+    return {'statusCode': 200}
 
 
 def default_handler(event, context):
     """Handle default/unknown routes"""
     connection_id = event['requestContext']['connectionId']
     route_key = event['requestContext'].get('routeKey', 'unknown')
-    
     print(f"WebSocket default route: {route_key} from {connection_id}")
-    
-    return {
-        'statusCode': 200
-    }
+    return {'statusCode': 200}
 
 
 def message_handler(event, context):
-    """Handle WebSocket messages - generate contract with streaming"""
+    """
+    Handle WebSocket messages - generate contract with chunked streaming
+    to avoid API Gateway 30-second timeout
+    """
     connection_id = event['requestContext']['connectionId']
     
     print(f"WebSocket message handler called for connection: {connection_id}")
@@ -120,24 +110,44 @@ def message_handler(event, context):
             'message': 'Contract generation started...'
         }, event)
         
-        # Generate contract
+        # Generate contract (this can take 30-60+ seconds)
         print("Starting contract generation...")
         result = generate_contract_streaming(prompt)
         
         if result['success']:
             print(f"Generation successful, content length: {len(result['content'])}")
             
-            # Send the complete content
-            send_message(connection_id, {
-                'type': 'content',
-                'content': result['content'],
-                'metadata': result['metadata']
-            }, event)
+            # CRITICAL: Send content in chunks to keep connection alive
+            content = result['content']
+            chunk_size = 30000  # ~30KB chunks
+            
+            if len(content) > chunk_size:
+                print(f"Sending large content in chunks...")
+                for i in range(0, len(content), chunk_size):
+                    chunk = content[i:i+chunk_size]
+                    is_last = i + chunk_size >= len(content)
+                    
+                    send_message(connection_id, {
+                        'type': 'chunk',
+                        'content': chunk,
+                        'is_last': is_last,
+                        'chunk_index': i // chunk_size
+                    }, event)
+                    
+                print(f"Sent content in {(len(content) // chunk_size) + 1} chunks")
+            else:
+                # Send as single message if small enough
+                send_message(connection_id, {
+                    'type': 'content',
+                    'content': content,
+                    'metadata': result['metadata']
+                }, event)
             
             # Send completion
             send_message(connection_id, {
                 'type': 'complete',
-                'message': 'Contract generated successfully'
+                'message': 'Contract generated successfully',
+                'metadata': result['metadata']
             }, event)
             
             return {'statusCode': 200}

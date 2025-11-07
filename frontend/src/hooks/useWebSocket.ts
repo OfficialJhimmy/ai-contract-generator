@@ -3,11 +3,14 @@ import { useState, useEffect, useCallback, useRef } from "react"
 export type WebSocketStatus = "disconnected" | "connecting" | "connected" | "error"
 
 export interface WebSocketMessage {
-  type: "start" | "content" | "complete" | "error"
+  type: "start" | "content" | "chunk" | "complete" | "error"
   message?: string
   content?: string
   error?: string
   metadata?: any
+  // Chunk-specific fields
+  chunk_index?: number
+  is_last?: boolean
 }
 
 export function useWebSocket(url: string | null) {
@@ -15,6 +18,7 @@ export function useWebSocket(url: string | null) {
   const [error, setError] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const chunksRef = useRef<string[]>([])
   
   const connect = useCallback(() => {
     if (!url) return
@@ -27,19 +31,20 @@ export function useWebSocket(url: string | null) {
       wsRef.current = ws
       
       ws.onopen = () => {
-        console.log("WebSocket connected")
+        console.log("✅ WebSocket connected")
         setStatus("connected")
         setError(null)
+        chunksRef.current = [] // Reset chunks
       }
       
       ws.onerror = (event) => {
-        console.error("WebSocket error:", event)
+        console.error("❌ WebSocket error:", event)
         setStatus("error")
         setError("Connection error. Please try again.")
       }
       
       ws.onclose = () => {
-        console.log("WebSocket closed")
+        console.log("🔌 WebSocket closed")
         setStatus("disconnected")
         wsRef.current = null
         
@@ -65,6 +70,7 @@ export function useWebSocket(url: string | null) {
       wsRef.current = null
     }
     setStatus("disconnected")
+    chunksRef.current = []
   }, [])
   
   const sendMessage = useCallback((message: any) => {
@@ -72,6 +78,7 @@ export function useWebSocket(url: string | null) {
       wsRef.current.send(JSON.stringify(message))
       return true
     }
+    console.warn("⚠️ Cannot send message, WebSocket not connected")
     return false
   }, [])
   
@@ -80,7 +87,27 @@ export function useWebSocket(url: string | null) {
       wsRef.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          callback(data)
+          
+          // Handle chunked messages
+          if (data.type === 'chunk') {
+            console.log(`📦 Received chunk ${data.chunk_index}, is_last: ${data.is_last}`)
+            chunksRef.current.push(data.content || '')
+            
+            // If this is the last chunk, combine all chunks and send as content
+            if (data.is_last) {
+              const fullContent = chunksRef.current.join('')
+              console.log(`✅ All chunks received, total length: ${fullContent.length}`)
+              callback({
+                type: 'content',
+                content: fullContent,
+                metadata: data.metadata
+              })
+              chunksRef.current = [] // Reset for next message
+            }
+          } else {
+            // Regular message (not chunked)
+            callback(data)
+          }
         } catch (err) {
           console.error("Failed to parse message:", err)
         }

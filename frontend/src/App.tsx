@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react"
+// App.tsx
+import React, { useEffect, useRef, useState } from "react"
 import { Loader2, FileDown, AlertCircle, CheckCircle2, Zap } from "lucide-react"
 import { useWebSocket } from "./hooks/useWebSocket"
 import { exportToWord, exportToPDF } from "./lib/export"
 import { formatWordCount, formatPageCount, stripHtmlTags, cn } from "./lib/utils"
 
-// Replace with your actual WebSocket URL from deployment
+// WebSocket URL fallback
 const WS_URL = import.meta.env.VITE_WS_URL || "wss://YOUR-WEBSOCKET-ID.execute-api.us-east-1.amazonaws.com/prod"
 
 const QUICK_PROMPTS = [
@@ -14,104 +15,230 @@ const QUICK_PROMPTS = [
   "Termination & liability cap"
 ]
 
-function App() {
-  const [prompt, setPrompt] = useState("Draft Terms of Service for a cloud cyber SaaS company based in New York.")
+/**
+ * Utility: pick next renderable token from pending buffer
+ * - If next char is '<' => consume until the next '>' (avoid typing inside HTML tags)
+ * - If next char is '&' => consume until next ';' (HTML entity)
+ * - Otherwise return a single character
+ */
+function getNextRenderableToken(pending: string) {
+  if (!pending) return { token: "", rest: "" }
+
+  if (pending[0] === "<") {
+    const endIdx = pending.indexOf(">")
+    if (endIdx === -1) {
+      // no closing yet — as fallback, emit one char (prevents stuck)
+      return { token: pending[0], rest: pending.slice(1) }
+    }
+    const token = pending.slice(0, endIdx + 1)
+    return { token, rest: pending.slice(endIdx + 1) }
+  }
+
+  if (pending[0] === "&") {
+    const endIdx = pending.indexOf(";")
+    if (endIdx === -1) {
+      return { token: pending[0], rest: pending.slice(1) }
+    }
+    const token = pending.slice(0, endIdx + 1)
+    return { token, rest: pending.slice(endIdx + 1) }
+  }
+
+  // default: single character
+  return { token: pending[0], rest: pending.slice(1) }
+}
+
+function App(): JSX.Element {
+  // Inputs
+  const [prompt, setPrompt] = useState(
+    "Draft Terms of Service for a cloud cyber SaaS company based in New York."
+  )
   const [targetPages, setTargetPages] = useState(10)
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedContent, setGeneratedContent] = useState("")
-  const [displayContent, setDisplayContent] = useState("")
+
+  // WebSocket / generation state
+  const [isGenerating, setIsGenerating] = useState(false) // backend still generating
+  const [generatedContent, setGeneratedContent] = useState("") // full assembled content as chunks arrive
+  const [pendingBuffer, setPendingBuffer] = useState("") // buffer of raw incoming text waiting to be typed
+  const [displayContent, setDisplayContent] = useState("") // what is shown in the UI (typed)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  
+
   const { status, connect, disconnect, sendMessage, onMessage } = useWebSocket(WS_URL)
-  
-  // Connect to WebSocket on mount
+
+  // Refs
+  const outputRef = useRef<HTMLDivElement | null>(null)
+  const typingIntervalRef = useRef<number | null>(null)
+
+  // Connect / disconnect websocket on mount
   useEffect(() => {
     connect()
-    return () => disconnect()
+    return () => {
+      disconnect()
+    }
   }, [connect, disconnect])
-  
-  // Set up message handler
+
+  // Handle incoming parsed messages from your useWebSocket hook
   useEffect(() => {
-    onMessage((message) => {
-      console.log('📨 Received message:', message)
-      
-      if (message.type === "start") {
+    // onMessage should call us with a parsed object like { type: 'chunk', content: '...' }
+    onMessage((message: any) => {
+      console.log("📨 WS message:", message)
+
+      if (!message || typeof message !== "object") {
+        console.warn("Unexpected message shape:", message)
+        return
+      }
+
+      const type = message.type
+
+      if (type === "start") {
+        // Reset UI state for a new generation
         setIsGenerating(true)
         setError(null)
         setSuccess(false)
         setGeneratedContent("")
-      } else if (message.type === "content") {
-        setGeneratedContent(message.content || "")
+        setPendingBuffer("")
+        setDisplayContent("")
+      } else if (type === "chunk") {
+        // Backend sends chunks (string) and indicates if last
+        const chunk = message.content || ""
+        setGeneratedContent((prev) => prev + chunk)
+        // Append chunk to pending buffer for typing
+        setPendingBuffer((prev) => prev + chunk)
+        // Keep isGenerating true until 'complete'
+        setIsGenerating(true)
+      } else if (type === "content") {
+        // Entire content in one go
+        const content = message.content || ""
+        setGeneratedContent(content)
+        setPendingBuffer((prev) => prev + content)
+        setIsGenerating(false) // backend finished sending "content", but we'll wait for "complete" normally
+      } else if (type === "complete") {
         setIsGenerating(false)
         setSuccess(true)
-      } else if (message.type === "complete") {
+        // If there's still pendingBuffer, typing effect will finish it
+      } else if (type === "error") {
         setIsGenerating(false)
-        setSuccess(true)
-      } else if (message.type === "error") {
-        console.error('❌ Backend error:', message.error)
-        setIsGenerating(false)
-        setError(message.error || "An error occurred")
-        
-        // Show a more helpful message
-        if (message.error?.includes("too short")) {
-          setError("Please provide more details about the contract you need (at least 5 characters)")
-        }
+        setError(message.error || "An error occurred during generation")
+      } else {
+        console.warn("Unhandled message type:", type)
       }
     })
   }, [onMessage])
-  
+
+  // Typing effect: consume pendingBuffer into displayContent token by token
+  useEffect(() => {
+    // Clear previous interval if exists
+    if (typingIntervalRef.current) {
+      window.clearInterval(typingIntervalRef.current)
+      typingIntervalRef.current = null
+    }
+
+    if (!pendingBuffer) {
+      return
+    }
+
+    // Typing speed in ms. Lower = faster. Tune as you like.
+    const TYPING_INTERVAL_MS = 12
+
+    typingIntervalRef.current = window.setInterval(() => {
+      setPendingBuffer((prevPending) => {
+        if (!prevPending) {
+          // nothing left, clear interval
+          if (typingIntervalRef.current) {
+            window.clearInterval(typingIntervalRef.current)
+            typingIntervalRef.current = null
+          }
+          return ""
+        }
+
+        const { token, rest } = getNextRenderableToken(prevPending)
+        // Append token to displayed HTML string
+        setDisplayContent((prevDisplay) => prevDisplay + token)
+
+        return rest
+      })
+    }, TYPING_INTERVAL_MS)
+
+    // cleanup if pendingBuffer changes or component unmounts
+    return () => {
+      if (typingIntervalRef.current) {
+        window.clearInterval(typingIntervalRef.current)
+        typingIntervalRef.current = null
+      }
+    }
+  }, [pendingBuffer])
+
+  // Auto-scroll output into view when displayContent changes
+  useEffect(() => {
+    if (!outputRef.current) return
+
+    // Scroll to bottom smoothly
+    const el = outputRef.current
+    // Use requestAnimationFrame to ensure DOM updated
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+  }, [displayContent, isGenerating])
+
+  // Helpers
   const handleGenerate = () => {
+    setError(null)
+    setSuccess(false)
+
     if (!prompt.trim()) {
       setError("Please enter a prompt")
       return
     }
-    
+
     if (status !== "connected") {
       setError("Not connected to server. Retrying...")
       connect()
       return
     }
-    
+
+    console.log("🚀 Sending generation request")
     const sent = sendMessage({
       action: "generate",
-      prompt: prompt.trim()
+      prompt: prompt.trim(),
+      target_pages: targetPages
     })
-    
+
     if (!sent) {
-      setError("Failed to send request. Please try again.")
+      setError("Failed to send request to server. Please try again.")
+    } else {
+      // UI will be reset on 'start' message from backend
     }
   }
-  
+
   const handleExport = async (format: "word" | "pdf") => {
-    if (!generatedContent) return
-    
+    if (!displayContent) {
+      setError("No content to export")
+      return
+    }
     setIsExporting(true)
     try {
       const filename = `contract-${Date.now()}.${format === "word" ? "docx" : "pdf"}`
-      
       if (format === "word") {
-        await exportToWord(generatedContent, filename)
+        await exportToWord(displayContent, filename)
       } else {
-        await exportToPDF(generatedContent, filename)
+        await exportToPDF(displayContent, filename)
       }
     } catch (err) {
-      setError(`Failed to export to ${format.toUpperCase()}`)
       console.error(err)
+      setError(`Failed to export to ${format.toUpperCase()}`)
     } finally {
       setIsExporting(false)
     }
   }
-  
-  const wordCount = generatedContent ? formatWordCount(stripHtmlTags(generatedContent)) : 0
+
+  const wordCount = displayContent ? formatWordCount(stripHtmlTags(displayContent)) : 0
   const pageCount = formatPageCount(wordCount)
-  
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <header className="text-center mb-12">
+        <header className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
               <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -125,7 +252,7 @@ function App() {
           <p className="text-gray-600 text-lg">
             AI-powered legal contract generation with real-time streaming
           </p>
-          
+
           {/* Connection Status */}
           <div className="mt-4 flex items-center justify-center gap-2 text-sm">
             <div className={cn(
@@ -143,9 +270,9 @@ function App() {
             </span>
           </div>
         </header>
-        
+
         {/* Quick Prompts */}
-        <div className="mb-8">
+        <div className="mb-6">
           <h3 className="text-sm font-medium text-gray-700 mb-3">Quick prompts:</h3>
           <div className="flex flex-wrap gap-2">
             {QUICK_PROMPTS.map((quickPrompt) => (
@@ -159,7 +286,7 @@ function App() {
             ))}
           </div>
         </div>
-        
+
         {/* Main Input Area */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-8">
           <textarea
@@ -168,7 +295,7 @@ function App() {
             placeholder="Describe the contract you need..."
             className="w-full h-32 px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 placeholder-gray-400"
           />
-          
+
           <div className="mt-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <label className="text-sm text-gray-600">Target pages:</label>
@@ -188,7 +315,7 @@ function App() {
                 </button>
               </div>
             </div>
-            
+
             <button
               onClick={handleGenerate}
               disabled={isGenerating || status !== "connected"}
@@ -213,7 +340,7 @@ function App() {
             </button>
           </div>
         </div>
-        
+
         {/* Error Message */}
         {error && (
           <div className="mb-8 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
@@ -224,9 +351,9 @@ function App() {
             </div>
           </div>
         )}
-        
+
         {/* Success Message */}
-        {success && !isGenerating && (
+        {success && !isGenerating && displayContent && (
           <div className="mb-8 bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -239,7 +366,7 @@ function App() {
               <button
                 onClick={() => handleExport("word")}
                 disabled={isExporting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
               >
                 <FileDown className="w-4 h-4" />
                 Word
@@ -247,7 +374,7 @@ function App() {
               <button
                 onClick={() => handleExport("pdf")}
                 disabled={isExporting}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 disabled:opacity-50"
               >
                 <FileDown className="w-4 h-4" />
                 PDF
@@ -255,26 +382,46 @@ function App() {
             </div>
           </div>
         )}
-        
-        {/* Generated Content Preview */}
-        {displayContent && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-800">Generated Contract</h2>
-              <span className="text-sm text-gray-500">
-                {wordCount.toLocaleString()} words • ~{pageCount} pages
-              </span>
-            </div>
-            <div 
-              className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: displayContent }}
-            />
+
+        {/* Generated Content Preview - Full-width ChatGPT style */}
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 mb-8" style={{ maxWidth: "100%" }}>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-gray-800">Generated Contract</h2>
+            <span className="text-sm text-gray-500">
+              {wordCount.toLocaleString()} words • ~{pageCount} pages
+            </span>
           </div>
-        )}
-        
+
+          <div
+            ref={outputRef}
+            className="prose prose-sm max-w-none overflow-auto p-3 rounded-md min-h-[280px] bg-white"
+            style={{ maxHeight: "60vh" }}
+          >
+            {/* Skeleton while starting and no typed content yet */}
+            {!displayContent && isGenerating ? (
+              <div className="space-y-3">
+                <div className="h-4 bg-gray-200 rounded w-4/5 animate-pulse"></div>
+                <div className="h-4 bg-gray-200 rounded w-3/5 animate-pulse"></div>
+                <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
+                <div className="h-4 bg-gray-200 rounded w-4/5 animate-pulse"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/5 animate-pulse"></div>
+              </div>
+            ) : (
+              // Display typed HTML content safely
+              <div>
+                <div dangerouslySetInnerHTML={{ __html: displayContent }} />
+                {/* Typing caret while generation still ongoing */}
+                {isGenerating && (
+                  <span aria-hidden className="inline-block ml-1 animate-pulse text-gray-400">|</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Footer */}
-        <footer className="mt-12 text-center text-sm text-gray-500">
-          <p>WebSocket: {WS_URL.substring(0, 50)}...</p>
+        <footer className="mt-4 text-center text-sm text-gray-500">
+          <p>WebSocket: {WS_URL.substring(0, 80)}{WS_URL.length > 80 ? "..." : ""}</p>
         </footer>
       </div>
     </div>
