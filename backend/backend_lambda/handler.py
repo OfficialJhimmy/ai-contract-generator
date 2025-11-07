@@ -306,8 +306,9 @@ def validate_input(prompt: str) -> Optional[str]:
     if not prompt or not prompt.strip():
         return "Prompt cannot be empty"
     
-    if len(prompt.strip()) < 10:
-        return "Prompt is too short. Please provide more details about your contract needs."
+    # Make this more lenient - even 5 chars should be okay
+    if len(prompt.strip()) < 5:
+        return "Prompt is too short. Please provide more details."
     
     if len(prompt) > 5000:
         return "Prompt is too long. Please limit to 5000 characters."

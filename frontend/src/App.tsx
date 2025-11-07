@@ -35,25 +35,29 @@ function App() {
   // Set up message handler
   useEffect(() => {
     onMessage((message) => {
-      console.log("Received message:", message.type)
+      console.log('📨 Received message:', message)
       
       if (message.type === "start") {
         setIsGenerating(true)
         setError(null)
         setSuccess(false)
         setGeneratedContent("")
-        setDisplayContent("")
       } else if (message.type === "content") {
         setGeneratedContent(message.content || "")
-        setDisplayContent(message.content || "")
         setIsGenerating(false)
         setSuccess(true)
       } else if (message.type === "complete") {
         setIsGenerating(false)
         setSuccess(true)
       } else if (message.type === "error") {
+        console.error('❌ Backend error:', message.error)
         setIsGenerating(false)
         setError(message.error || "An error occurred")
+        
+        // Show a more helpful message
+        if (message.error?.includes("too short")) {
+          setError("Please provide more details about the contract you need (at least 5 characters)")
+        }
       }
     })
   }, [onMessage])
