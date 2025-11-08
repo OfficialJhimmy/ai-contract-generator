@@ -9,10 +9,15 @@
 }
 
 body {
-  margin: 0;
-  font-family: "Archivo", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-family: "Archivo", sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  background-color: initial !important;
+  max-width: none !important;
+  line-height: normal !important;
+  font-size: 16px !important;
 }
 
 @layer base {
@@ -49,7 +54,7 @@ body {
   
   .contract-content {
     @apply text-black dark:text-gray-200;
-    @apply bg-white dark:bg-gray-950;
+    @apply bg-white dark:bg-[#1e2939];
   }
   
   .contract-content h1,

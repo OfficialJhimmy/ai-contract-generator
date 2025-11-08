@@ -55,11 +55,7 @@ export const ContractPreview = forwardRef<HTMLDivElement, ContractPreviewProps>(
         
         <div
           ref={ref}
-          className={cn(
-            "p-6 overflow-y-auto prose prose-sm max-w-none",
-            isDark && "prose-invert",
-            "contract-content"
-          )}
+          className="p-6 overflow-y-auto"
           style={{ maxHeight: "60vh" }}
         >
           {!content && isGenerating ? (
@@ -81,13 +77,18 @@ export const ContractPreview = forwardRef<HTMLDivElement, ContractPreviewProps>(
                 isDark ? "bg-gray-800" : "bg-gray-200"
               )} style={{ width: "70%" }} />
             </div>
-          ) : (
-            <>
-              <div dangerouslySetInnerHTML={{ __html: content }} />
-              {isGenerating && (
-                <span className="inline-block ml-1 w-2 h-5 bg-blue-500 animate-pulse" />
+          ) : content ? (
+            <div 
+              className={cn(
+                "prose prose-sm max-w-none contract-content",
+                isDark && "prose-invert"
               )}
-            </>
+              dangerouslySetInnerHTML={{ __html: content }} 
+            />
+          ) : null}
+          
+          {isGenerating && content && (
+            <span className="inline-block ml-1 w-2 h-5 bg-blue-500 animate-pulse" />
           )}
         </div>
       </div>
