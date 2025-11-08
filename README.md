@@ -1,4 +1,4 @@
-# 🤖 ContractForge - AI Contract Generator
+# 🤖 FirstRead- AI Contract Generator
 
 A production-ready AI-powered legal contract generator with real-time streaming using AWS Lambda, WebSockets, and Claude AI.
 

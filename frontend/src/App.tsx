@@ -1,10 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import {
   Loader2,
   FileDown,
   AlertCircle,
   CheckCircle2,
-  Zap,
   Menu,
   X,
   Plus,
@@ -64,7 +63,7 @@ function App(): JSX.Element {
   const [prompt, setPrompt] = useState(
     "Draft Terms of Service for a cloud cyber SaaS company based in New York."
   );
-  const [targetPages, setTargetPages] = useState(10);
+  const [targetPages, _setTargetPages] = useState(10);
 
   // WebSocket / generation state
   const [isGenerating, setIsGenerating] = useState(false);
