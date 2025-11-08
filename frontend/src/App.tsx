@@ -1,11 +1,22 @@
-// App.tsx - Improved UX with immediate feedback
 import React, { useEffect, useRef, useState } from "react"
-import { Loader2, FileDown, AlertCircle, CheckCircle2, Zap, Wifi, WifiOff } from "lucide-react"
+import { Loader2, FileDown, AlertCircle, CheckCircle2, Zap, Menu, X, Plus, Sun, Moon } from "lucide-react"
 import { useWebSocket } from "./hooks/useWebSocket"
 import { exportToWord, exportToPDF } from "./lib/export"
 import { formatWordCount, formatPageCount, stripHtmlTags, cn } from "./lib/utils"
+import { ConversationHistory, type Conversation } from "./components/ConversationHistory"
+import { ContractPreview } from "./components/ContractPreview"
 
-const WS_URL = import.meta.env.VITE_WS_URL || "wss://YOUR-WEBSOCKET-ID.execute-api.us-east-1.amazonaws.com/prod"
+// First Read Brand Colors (extracted from website)
+const BRAND_COLORS = {
+  primary: "#2563eb", // Blue
+  secondary: "#7c3aed", // Purple
+  accent: "#06b6d4", // Cyan
+  dark: "#0f172a", // Slate 900
+  lightBg: "#f8fafc" // Slate 50
+}
+
+// WebSocket URL - Replace with your actual URL
+const WS_URL = import.meta.env.VITE_WS_URL || "wss://lmmxz22twa.execute-api.us-east-1.amazonaws.com/prod"
 
 const QUICK_PROMPTS = [
   "Draft an NDA between SaaS firms",
@@ -14,41 +25,16 @@ const QUICK_PROMPTS = [
   "Termination & liability cap"
 ]
 
-// Loading messages that cycle while waiting
-const LOADING_MESSAGES = [
-  "Initializing Claude AI...",
-  "Analyzing your requirements...",
-  "Structuring legal framework...",
-  "Generating contract clauses...",
-  "Refining legal language...",
-  "Almost ready..."
-]
-
-function getNextRenderableToken(pending: string) {
-  if (!pending) return { token: "", rest: "" }
-
-  if (pending[0] === "<") {
-    const endIdx = pending.indexOf(">")
-    if (endIdx === -1) {
-      return { token: pending[0], rest: pending.slice(1) }
-    }
-    const token = pending.slice(0, endIdx + 1)
-    return { token, rest: pending.slice(endIdx + 1) }
-  }
-
-  if (pending[0] === "&") {
-    const endIdx = pending.indexOf(";")
-    if (endIdx === -1) {
-      return { token: pending[0], rest: pending.slice(1) }
-    }
-    const token = pending.slice(0, endIdx + 1)
-    return { token, rest: pending.slice(endIdx + 1) }
-  }
-
-  return { token: pending[0], rest: pending.slice(1) }
-}
-
 function App(): JSX.Element {
+  // Theme
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("theme")
+    return saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  })
+  
+  // Sidebar
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  
   // Inputs
   const [prompt, setPrompt] = useState(
     "Draft Terms of Service for a cloud cyber SaaS company based in New York."
@@ -57,23 +43,43 @@ function App(): JSX.Element {
 
   // WebSocket / generation state
   const [isGenerating, setIsGenerating] = useState(false)
-  const [generationStage, setGenerationStage] = useState<string>("")
   const [generatedContent, setGeneratedContent] = useState("")
-  const [pendingBuffer, setPendingBuffer] = useState("")
   const [displayContent, setDisplayContent] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [hasReceivedFirstChunk, setHasReceivedFirstChunk] = useState(false)
+
+  // Conversation history
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const saved = localStorage.getItem("conversations")
+    return saved ? JSON.parse(saved) : []
+  })
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
 
   const { status, connect, disconnect, sendMessage, onMessage } = useWebSocket(WS_URL)
 
+  // Refs
   const outputRef = useRef<HTMLDivElement | null>(null)
   const typingIntervalRef = useRef<number | null>(null)
-  const loadingMessageIndexRef = useRef(0)
-  const loadingIntervalRef = useRef<number | null>(null)
+  const displayIndexRef = useRef(0)
 
-  // Connect on mount
+  // Theme effect
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add("dark")
+      localStorage.setItem("theme", "dark")
+    } else {
+      document.documentElement.classList.remove("dark")
+      localStorage.setItem("theme", "light")
+    }
+  }, [isDark])
+
+  // Save conversations to localStorage
+  useEffect(() => {
+    localStorage.setItem("conversations", JSON.stringify(conversations))
+  }, [conversations])
+
+  // Connect WebSocket on mount
   useEffect(() => {
     connect()
     return () => {
@@ -81,35 +87,15 @@ function App(): JSX.Element {
     }
   }, [connect, disconnect])
 
-  // Cycling loading messages while waiting for first chunk
-  useEffect(() => {
-    if (isGenerating && !hasReceivedFirstChunk) {
-      // Start cycling through loading messages
-      loadingMessageIndexRef.current = 0
-      setGenerationStage(LOADING_MESSAGES[0])
-      
-      loadingIntervalRef.current = window.setInterval(() => {
-        loadingMessageIndexRef.current = (loadingMessageIndexRef.current + 1) % LOADING_MESSAGES.length
-        setGenerationStage(LOADING_MESSAGES[loadingMessageIndexRef.current])
-      }, 3000) // Change message every 3 seconds
-      
-      return () => {
-        if (loadingIntervalRef.current) {
-          window.clearInterval(loadingIntervalRef.current)
-          loadingIntervalRef.current = null
-        }
-      }
-    } else {
-      // Clear loading messages once we start receiving content
-      if (loadingIntervalRef.current) {
-        window.clearInterval(loadingIntervalRef.current)
-        loadingIntervalRef.current = null
-      }
-      if (hasReceivedFirstChunk) {
-        setGenerationStage("Streaming contract...")
-      }
-    }
-  }, [isGenerating, hasReceivedFirstChunk])
+  // Utility function to clean markdown code fences
+  const cleanMarkdownFences = (content: string): string => {
+    // Remove ```html, ```xml, ``` and other code fence markers
+    return content
+      .replace(/^```[\w]*\n?/gm, '')  // Remove opening code fences (```html, ```xml, etc.)
+      .replace(/\n?```$/gm, '')        // Remove closing code fences
+      .replace(/```\n?/g, '')          // Remove any remaining ``` markers
+      .trim()
+  }
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -125,100 +111,99 @@ function App(): JSX.Element {
 
       if (type === "start") {
         setIsGenerating(true)
-        setHasReceivedFirstChunk(false)
         setError(null)
         setSuccess(false)
         setGeneratedContent("")
-        setPendingBuffer("")
         setDisplayContent("")
-        setGenerationStage(LOADING_MESSAGES[0])
+        displayIndexRef.current = 0
       } else if (type === "chunk") {
         const chunk = message.content || ""
-        
-        // First chunk received!
-        if (!hasReceivedFirstChunk && chunk) {
-          setHasReceivedFirstChunk(true)
-          setGenerationStage("Streaming contract...")
-        }
-        
-        setGeneratedContent((prev) => prev + chunk)
-        setPendingBuffer((prev) => prev + chunk)
-        setIsGenerating(true)
+        // Clean each chunk as it arrives
+        setGeneratedContent((prev) => {
+          const combined = prev + chunk
+          return cleanMarkdownFences(combined)
+        })
       } else if (type === "content") {
         const content = message.content || ""
-        if (!hasReceivedFirstChunk && content) {
-          setHasReceivedFirstChunk(true)
-        }
-        setGeneratedContent(content)
-        setPendingBuffer((prev) => prev + content)
-        setIsGenerating(false)
+        setGeneratedContent(cleanMarkdownFences(content))
       } else if (type === "complete") {
         setIsGenerating(false)
         setSuccess(true)
-        setGenerationStage("")
+        
+        // Clean the final content before saving
+        setGeneratedContent((prev) => {
+          const finalContent = cleanMarkdownFences(prev)
+          
+          // Save to conversation history with cleaned content
+          const newConversation: Conversation = {
+            id: Date.now().toString(),
+            prompt: prompt,
+            contract: finalContent,
+            timestamp: Date.now()
+          }
+          setConversations(convs => [newConversation, ...convs])
+          setCurrentConversationId(newConversation.id)
+          
+          return finalContent
+        })
       } else if (type === "error") {
         setIsGenerating(false)
-        setHasReceivedFirstChunk(false)
-        setGenerationStage("")
         setError(message.error || "An error occurred during generation")
-      } else {
-        console.warn("Unhandled message type:", type)
       }
     })
-  }, [onMessage, hasReceivedFirstChunk])
+  }, [onMessage, prompt])
 
-  // Typing effect
+  // FIXED TYPING EFFECT - Character by character, no duplication
   useEffect(() => {
     if (typingIntervalRef.current) {
       window.clearInterval(typingIntervalRef.current)
-      typingIntervalRef.current = null
     }
 
-    if (!pendingBuffer) {
+    if (!generatedContent) {
+      displayIndexRef.current = 0
+      setDisplayContent("")
       return
     }
 
-    const TYPING_INTERVAL_MS = 12
+    // If we've already displayed all content, don't restart
+    if (displayIndexRef.current >= generatedContent.length) {
+      return
+    }
+
+    const TYPING_SPEED_MS = 8 // Very fast for production
 
     typingIntervalRef.current = window.setInterval(() => {
-      setPendingBuffer((prevPending) => {
-        if (!prevPending) {
-          if (typingIntervalRef.current) {
-            window.clearInterval(typingIntervalRef.current)
-            typingIntervalRef.current = null
-          }
-          return ""
+      displayIndexRef.current += 1
+      
+      if (displayIndexRef.current <= generatedContent.length) {
+        setDisplayContent(generatedContent.substring(0, displayIndexRef.current))
+      } else {
+        // Done typing
+        if (typingIntervalRef.current) {
+          window.clearInterval(typingIntervalRef.current)
+          typingIntervalRef.current = null
         }
-
-        const { token, rest } = getNextRenderableToken(prevPending)
-        setDisplayContent((prevDisplay) => prevDisplay + token)
-
-        return rest
-      })
-    }, TYPING_INTERVAL_MS)
+      }
+    }, TYPING_SPEED_MS)
 
     return () => {
       if (typingIntervalRef.current) {
         window.clearInterval(typingIntervalRef.current)
-        typingIntervalRef.current = null
       }
     }
-  }, [pendingBuffer])
+  }, [generatedContent])
 
   // Auto-scroll
   useEffect(() => {
-    if (!outputRef.current) return
-
-    const el = outputRef.current
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight
-    })
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight
+    }
   }, [displayContent])
 
+  // Handlers
   const handleGenerate = () => {
     setError(null)
     setSuccess(false)
-    setHasReceivedFirstChunk(false)
 
     if (!prompt.trim()) {
       setError("Please enter a prompt")
@@ -264,234 +249,376 @@ function App(): JSX.Element {
     }
   }
 
+  const handleNewConversation = () => {
+    setPrompt("")
+    setGeneratedContent("")
+    setDisplayContent("")
+    setSuccess(false)
+    setError(null)
+    setCurrentConversationId(null)
+    displayIndexRef.current = 0
+  }
+
+  const handleLoadConversation = (conversation: Conversation) => {
+    setPrompt(conversation.prompt)
+    setGeneratedContent(conversation.contract)
+    setDisplayContent(conversation.contract)
+    setCurrentConversationId(conversation.id)
+    setSuccess(true)
+    displayIndexRef.current = conversation.contract.length
+  }
+
+  const handleDeleteConversation = (id: string) => {
+    setConversations(prev => prev.filter(c => c.id !== id))
+    if (currentConversationId === id) {
+      handleNewConversation()
+    }
+  }
+
   const wordCount = displayContent ? formatWordCount(stripHtmlTags(displayContent)) : 0
   const pageCount = formatPageCount(wordCount)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <header className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+    <div className={cn(
+      "min-h-screen flex transition-colors duration-200",
+      isDark ? "bg-gray-950" : "bg-gradient-to-br from-blue-50 via-white to-purple-50"
+    )}>
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out",
+        isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200",
+        "border-r w-80",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full", "lg:translate-x-0"
+      )}>
+        <div className="flex items-center justify-between p-4 border-b border-inherit">
+          <div className="flex items-center gap-3">
+            <div 
+              className="w-[50px] h-10 rounded-xl flex items-center justify-center"
+            >
+              <img src="./first-read-logo.png" alt="First Read Logo" />
             </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              ContractForge
-            </h1>
+            <div>
+              <h2 className={cn("text-2xl", isDark ? "text-white" : "text-black")}>FirstRead</h2>
+              <p className={cn(
+                "text-xs",
+                isDark ? "text-gray-400" : "text-gray-600"
+              )}>
+                Contract Generator
+              </p>
+            </div>
           </div>
-          <p className="text-gray-600 text-lg">
-            AI-powered legal contract generation with real-time streaming
-          </p>
-
-          {/* Enhanced Connection Status */}
-          <div className="mt-4 flex items-center justify-center gap-2 text-sm">
-            {status === "connected" ? (
-              <>
-                <Wifi className="w-4 h-4 text-green-500" />
-                <span className="text-green-600 font-medium">Connected</span>
-              </>
-            ) : status === "connecting" ? (
-              <>
-                <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
-                <span className="text-yellow-600">Connecting...</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-4 h-4 text-red-500" />
-                <span className="text-red-600">Disconnected</span>
-                <button 
-                  onClick={connect}
-                  className="ml-2 text-blue-600 hover:underline text-xs"
-                >
-                  Reconnect
-                </button>
-              </>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className={cn(
+              "lg:hidden p-2 rounded-lg",
+              isDark ? "hover:bg-gray-800 text-white" : "hover:bg-gray-100 text-white"
             )}
-          </div>
-        </header>
-
-        {/* Quick Prompts */}
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Quick prompts:</h3>
-          <div className="flex flex-wrap gap-2">
-            {QUICK_PROMPTS.map((quickPrompt) => (
-              <button
-                key={quickPrompt}
-                onClick={() => setPrompt(quickPrompt)}
-                disabled={isGenerating}
-                className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {quickPrompt}
-              </button>
-            ))}
-          </div>
+          >
+            <X className={cn("w-5 h-5", isDark ? "text-white" : "text-black")} />
+          </button>
         </div>
 
-        {/* Main Input Area */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-8">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            disabled={isGenerating}
-            placeholder="Describe the contract you need..."
-            className="w-full h-32 px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 placeholder-gray-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
-          />
+        <div className="p-4 border-b border-inherit">
+          <button
+            onClick={handleNewConversation}
+            className={cn(
+              "w-full px-4 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all",
+              isDark
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-lg text-white"
+            )}
+          >
+            <Plus className="w-5 h-5" />
+            New Contract
+          </button>
+        </div>
 
-          <div className="mt-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <label className="text-sm text-gray-600">Target pages:</label>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setTargetPages(Math.max(1, targetPages - 1))}
-                  disabled={isGenerating}
-                  className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  −
-                </button>
-                <span className="w-12 text-center font-medium">{targetPages}</span>
-                <button
-                  onClick={() => setTargetPages(Math.min(50, targetPages + 1))}
-                  disabled={isGenerating}
-                  className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  +
-                </button>
-              </div>
-            </div>
+        <ConversationHistory
+          conversations={conversations}
+          currentId={currentConversationId}
+          onLoad={handleLoadConversation}
+          onDelete={handleDeleteConversation}
+          isDark={isDark}
+        />
 
+        <div className="mt-auto p-4 border-t border-inherit">
+          <div className="flex items-center justify-between">
+            <span className={cn(
+              "text-xs",
+              isDark ? "text-gray-400" : "text-gray-600"
+            )}>
+              {status === "connected" ? "🟢 Connected" : "🔴 Disconnected"}
+            </span>
             <button
-              onClick={handleGenerate}
-              disabled={isGenerating || status !== "connected"}
+              onClick={() => setIsDark(!isDark)}
               className={cn(
-                "px-8 py-3 rounded-xl font-medium flex items-center gap-2 transition-all duration-200",
-                isGenerating || status !== "connected"
-                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                  : "bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:scale-105"
+                "p-2 rounded-lg transition-colors",
+                isDark ? "hover:bg-gray-800 text-white" : "hover:bg-gray-100"
               )}
             >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-5 h-5" />
-                  Generate Contract
-                </>
-              )}
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
           </div>
         </div>
+      </aside>
 
-        {/* Generation Progress */}
-        {isGenerating && (
-          <div className="mb-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-blue-800 font-medium">{generationStage}</p>
-                {hasReceivedFirstChunk && (
-                  <div className="mt-2 h-1 bg-blue-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-600 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-                  </div>
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Main Content */}
+      <main className={cn(
+        "flex-1 transition-all duration-300",
+        sidebarOpen ? "lg:ml-80" : "ml-0", "lg:ml-80"
+      )}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-2 py-8">
+          {/* Header */}
+          <header className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className={cn(
+                  "p-2 rounded-lg lg:hidden",
+                  isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"
                 )}
+              >
+                <Menu className={cn("w-6 h-6", isDark ? "text-white" : "text-black")} />
+              </button>
+              
+              <div className="flex items-center gap-2 text-sm">
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  status === "connected" && "bg-green-500 animate-pulse",
+                  status === "connecting" && "bg-yellow-500 animate-pulse",
+                  status === "disconnected" && "bg-gray-400",
+                  status === "error" && "bg-red-500"
+                )} />
+                <span className={isDark ? "text-gray-400" : "text-gray-600"}>
+                  {status === "connected" && "Connected"}
+                  {status === "connecting" && "Connecting..."}
+                  {status === "disconnected" && "Disconnected"}
+                  {status === "error" && "Connection error"}
+                </span>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-8 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-red-800 font-medium">Error</p>
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Success Message */}
-        {success && !isGenerating && displayContent && (
-          <div className="mb-8 bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
-            <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-green-800 font-medium">Contract generated successfully!</p>
-              <p className="text-green-600 text-sm">
-                {wordCount.toLocaleString()} words • ~{pageCount} pages
+            <div className="text-center mb-6">
+              <h1 
+                className="text-4xl font-bold mb-2"
+                style={{
+                  background: `linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%)`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent"
+                }}
+              >
+                AI Contract Generator
+              </h1>
+              <p className={cn(
+                "text-lg",
+                isDark ? "text-gray-400" : "text-gray-600"
+              )}>
+                Generate professional legal contracts in seconds
               </p>
             </div>
-            <div className="flex gap-2">
+
+            {/* Quick Prompts */}
+            <div className="mb-6">
+              <h3 className={cn(
+                "text-sm font-medium mb-3",
+                isDark ? "text-gray-400" : "text-gray-700"
+              )}>
+                Quick prompts:
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {QUICK_PROMPTS.map((quickPrompt) => (
+                  <button
+                    key={quickPrompt}
+                    onClick={() => setPrompt(quickPrompt)}
+                    className={cn(
+                      "px-4 py-2 rounded-lg text-sm transition-all",
+                      isDark
+                        ? "bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700"
+                        : "bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50 border border-gray-200"
+                    )}
+                  >
+                    {quickPrompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          {/* Input Area */}
+          <div className={cn(
+            "rounded-2xl shadow-xl border p-8 mb-8",
+            isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-100"
+          )}>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe the contract you need..."
+              className={cn(
+                "w-full h-32 px-4 py-3 border rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400",
+                isDark
+                  ? "bg-gray-800 border-gray-700 text-gray-100"
+                  : "bg-white border-gray-200 text-gray-800"
+              )}
+            />
+
+            <div className="mt-6 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <label className={cn(
+                  "text-sm",
+                  isDark ? "text-gray-400" : "text-gray-600"
+                )}>
+                  Target pages:
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setTargetPages(Math.max(1, targetPages - 1))}
+                    className={cn(
+                      "w-8 h-8 rounded-lg border flex items-center justify-center",
+                      isDark
+                        ? "border-gray-700 hover:bg-gray-800"
+                        : "border-gray-200 hover:bg-gray-50"
+                    )}
+                  >
+                    −
+                  </button>
+                  <span className={cn(
+                    "w-12 text-center font-medium",
+                    isDark ? "text-gray-200" : "text-gray-900"
+                  )}>
+                    {targetPages}
+                  </span>
+                  <button
+                    onClick={() => setTargetPages(Math.min(50, targetPages + 1))}
+                    className={cn(
+                      "w-8 h-8 rounded-lg border flex items-center justify-center",
+                      isDark
+                        ? "border-gray-700 hover:bg-gray-800"
+                        : "border-gray-200 hover:bg-gray-50"
+                    )}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
               <button
-                onClick={() => handleExport("word")}
-                disabled={isExporting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                onClick={handleGenerate}
+                disabled={isGenerating || status !== "connected"}
+                className={cn(
+                  "px-8 py-3 rounded-xl font-medium flex items-center gap-2 transition-all duration-200 cursor-pointer",
+                  isGenerating || status !== "connected"
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600"
+                    : "text-white hover:shadow-lg hover:scale-105"
+                )}
+                style={
+                  !(isGenerating || status !== "connected")
+                    ? {
+                        background: `linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%)`
+                      }
+                    : undefined
+                }
               >
-                <FileDown className="w-4 h-4" />
-                Word
-              </button>
-              <button
-                onClick={() => handleExport("pdf")}
-                disabled={isExporting}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-              >
-                <FileDown className="w-4 h-4" />
-                PDF
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    Generate Contract
+                  </>
+                )}
               </button>
             </div>
           </div>
-        )}
 
-        {/* Generated Content Preview */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 mb-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-800">Generated Contract</h2>
-            <span className="text-sm text-gray-500">
-              {wordCount.toLocaleString()} words • ~{pageCount} pages
-            </span>
-          </div>
-
-          <div
-            ref={outputRef}
-            className="prose prose-sm max-w-none overflow-auto p-3 rounded-md min-h-[280px] bg-white"
-            style={{ maxHeight: "60vh" }}
-          >
-            {!displayContent && isGenerating ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 mb-4">
-                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-                  <span className="text-sm text-gray-500">{generationStage}</span>
-                </div>
-                <div className="h-4 bg-gray-200 rounded w-4/5 animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-3/5 animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-4/5 animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/5 animate-pulse"></div>
-              </div>
-            ) : !displayContent ? (
-              <div className="text-center text-gray-400 py-12">
-                <p>Your generated contract will appear here</p>
-              </div>
-            ) : (
+          {/* Error Message */}
+          {error && (
+            <div className={cn(
+              "mb-8 rounded-xl p-4 flex items-start gap-3 border",
+              isDark
+                ? "bg-red-900/20 border-red-800"
+                : "bg-red-50 border-red-200"
+            )}>
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               <div>
-                <div dangerouslySetInnerHTML={{ __html: displayContent }} />
-                {isGenerating && (
-                  <span aria-hidden className="inline-block ml-1 w-0.5 h-5 bg-blue-500 animate-pulse"></span>
-                )}
+                <p className={cn(
+                  "font-medium",
+                  isDark ? "text-red-400" : "text-red-800"
+                )}>
+                  Error
+                </p>
+                <p className={cn(
+                  "text-sm",
+                  isDark ? "text-red-300" : "text-red-600"
+                )}>
+                  {error}
+                </p>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {/* Footer */}
-        <footer className="mt-4 text-center text-sm text-gray-500">
-          <p>Powered by Claude AI • WebSocket Streaming</p>
-        </footer>
-      </div>
+          {/* Success Message */}
+          {success && !isGenerating && displayContent && (
+            <div className={cn(
+              "mb-8 rounded-xl p-4 flex items-start gap-3 border",
+              isDark
+                ? "bg-green-900/20 border-green-800"
+                : "bg-green-50 border-green-200"
+            )}>
+              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className={cn(
+                  "font-medium",
+                  isDark ? "text-green-400" : "text-green-800"
+                )}>
+                  Contract generated successfully!
+                </p>
+                <p className={cn(
+                  "text-sm",
+                  isDark ? "text-green-300" : "text-green-600"
+                )}>
+                  {wordCount.toLocaleString()} words • ~{pageCount} pages
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleExport("word")}
+                  disabled={isExporting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Word
+                </button>
+                <button
+                  onClick={() => handleExport("pdf")}
+                  disabled={isExporting}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <FileDown className="w-4 h-4" />
+                  PDF
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Contract Preview */}
+          <ContractPreview
+            ref={outputRef}
+            content={displayContent}
+            isGenerating={isGenerating}
+            isDark={isDark}
+          />
+        </div>
+      </main>
     </div>
   )
 }

@@ -94,7 +94,7 @@ export function ConversationHistory({
                   </p>
                   
                   <div className="flex items-center gap-2 text-xs">
-                    <Clock className="w-3 h-3" />
+                    <Clock className={cn("w-3 h-3 text-white", isDark ? "text-white" : "text-gray-900" )}/>
                     <span className={isDark ? "text-gray-400" : "text-gray-500"}>
                       {formatTime(conversation.timestamp)}
                     </span>
