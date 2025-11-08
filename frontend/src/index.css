@@ -41,24 +41,41 @@ body {
 
 @layer components {
   /* Contract Content Styling */
+
+  .contract-content,
+  .contract-content * {
+    font-family: "Archivo", sans-serif !important;
+  }
+  
   .contract-content {
-    @apply text-gray-800 dark:text-gray-200;
+    @apply text-black dark:text-gray-200;
+    @apply bg-white dark:bg-gray-950;
+  }
+  
+  .contract-content h1,
+  .contract-content h2,
+  .contract-content h3,
+  .contract-content h4,
+  .contract-content h5,
+  .contract-content h6 {
+    font-family: "Raleway", sans-serif !important;
+    @apply text-black dark:text-gray-100;
   }
   
   .contract-content h1 {
-    @apply text-3xl font-bold mt-8 mb-4 text-gray-900 dark:text-gray-100;
+    @apply text-3xl font-bold mt-8 mb-4;
   }
   
   .contract-content h2 {
-    @apply text-2xl font-semibold mt-6 mb-3 text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 pb-2;
+    @apply text-2xl font-semibold mt-6 mb-3  dark:border-b border-gray-200 dark:border-gray-700 pb-2;
   }
   
   .contract-content h3 {
-    @apply text-xl font-medium mt-4 mb-2 text-gray-800 dark:text-gray-200;
+    @apply text-xl font-medium mt-4 mb-2;
   }
   
   .contract-content p {
-    @apply mb-4 leading-relaxed text-justify;
+    @apply mb-4 leading-relaxed text-justify text-black dark:text-gray-300;
   }
   
   .contract-content ol,
@@ -67,11 +84,11 @@ body {
   }
   
   .contract-content li {
-    @apply mb-2;
+    @apply mb-2 text-black dark:text-gray-200;
   }
   
   .contract-content strong {
-    @apply font-semibold text-gray-900 dark:text-gray-100;
+    @apply text-black dark:text-gray-100 font-semibold;
   }
   
   .contract-content em {

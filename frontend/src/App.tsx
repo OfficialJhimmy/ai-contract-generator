@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { Loader2, FileDown, AlertCircle, CheckCircle2, Zap, Menu, X, Plus, Sun, Moon } from "lucide-react"
 import { useWebSocket } from "./hooks/useWebSocket"
 import { exportToWord, exportToPDF } from "./lib/export"
-import { formatWordCount, formatPageCount, stripHtmlTags, cn } from "./lib/utils"
+import { formatWordCount, formatPageCount, stripHtmlTags, cn, cleanContractHtml } from "./lib/utils"
 import { ConversationHistory, type Conversation } from "./components/ConversationHistory"
 import { ContractPreview } from "./components/ContractPreview"
 
@@ -90,11 +90,16 @@ function App(): JSX.Element {
   // Utility function to clean markdown code fences
   const cleanMarkdownFences = (content: string): string => {
     // Remove ```html, ```xml, ``` and other code fence markers
-    return content
-      .replace(/^```[\w]*\n?/gm, '')  // Remove opening code fences (```html, ```xml, etc.)
+    let cleaned = content
+      .replace(/^```[\w]*\n?/gm, '')  // Remove opening code fences
       .replace(/\n?```$/gm, '')        // Remove closing code fences
       .replace(/```\n?/g, '')          // Remove any remaining ``` markers
       .trim()
+    
+    // Also clean the HTML to remove style tags
+    cleaned = cleanContractHtml(cleaned)
+    
+    return cleaned
   }
 
   // Handle incoming WebSocket messages
@@ -470,7 +475,7 @@ function App(): JSX.Element {
             />
 
             <div className="mt-6 flex items-center justify-between">
-              <div className="flex items-center gap-4">
+              {/* <div className="flex items-center gap-4">
                 <label className={cn(
                   "text-sm",
                   isDark ? "text-gray-400" : "text-gray-600"
@@ -507,7 +512,7 @@ function App(): JSX.Element {
                     +
                   </button>
                 </div>
-              </div>
+              </div> */}
 
               <button
                 onClick={handleGenerate}

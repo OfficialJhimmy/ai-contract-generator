@@ -19,3 +19,32 @@ export function stripHtmlTags(html: string): string {
   tmp.innerHTML = html
   return tmp.textContent || tmp.innerText || ""
 }
+
+/**
+ * Strip <style> tags from HTML content
+ * This prevents inline styles from overriding our CSS
+ */
+export function stripStyleTags(html: string): string {
+  return html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+}
+
+/**
+ * Clean HTML by removing unwanted tags and attributes
+ */
+export function cleanContractHtml(html: string): string {
+  let cleaned = html
+  
+  // Remove <style> tags
+  cleaned = stripStyleTags(cleaned)
+  
+  // Remove inline style attributes (optional - if you want to be thorough)
+  // cleaned = cleaned.replace(/\s*style\s*=\s*["'][^"']*["']/gi, '')
+  
+  // Remove <!DOCTYPE>, <html>, <head>, <body> tags if present
+  cleaned = cleaned.replace(/<!DOCTYPE[^>]*>/gi, '')
+  cleaned = cleaned.replace(/<\/?html[^>]*>/gi, '')
+  cleaned = cleaned.replace(/<\/?head[^>]*>/gi, '')
+  cleaned = cleaned.replace(/<\/?body[^>]*>/gi, '')
+  
+  return cleaned.trim()
+}
