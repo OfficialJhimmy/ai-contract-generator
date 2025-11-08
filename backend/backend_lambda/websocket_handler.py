@@ -1,11 +1,12 @@
 """
-WebSocket handler - Optimized for real-time streaming
+WebSocket handler - Fixed for real-time streaming with proper message format
 """
 
 import json
 import os
 import boto3
-from handler_optimized import (
+import traceback
+from handler import (
     generate_contract_streaming, 
     validate_input,
     get_anthropic_client
@@ -34,9 +35,16 @@ def send_message(connection_id, data, event):
     """Send message to WebSocket client with error handling"""
     try:
         client = get_api_gateway_client(event)
+        
+        # Ensure data is properly formatted
+        if isinstance(data, dict):
+            message = json.dumps(data)
+        else:
+            message = str(data)
+            
         client.post_to_connection(
             ConnectionId=connection_id,
-            Data=json.dumps(data).encode('utf-8')
+            Data=message.encode('utf-8')
         )
         return True
     except client.exceptions.GoneException:
@@ -44,6 +52,7 @@ def send_message(connection_id, data, event):
         return False
     except Exception as e:
         print(f"Error sending message: {str(e)}")
+        traceback.print_exc()
         return False
 
 
@@ -71,14 +80,14 @@ def default_handler(event, context):
 
 def message_handler(event, context):
     """
-    Handle WebSocket messages - OPTIMIZED for speed
-    Streams chunks immediately as they're generated
+    Handle WebSocket messages - FIXED for proper streaming
     """
     connection_id = event['requestContext']['connectionId']
     
     print(f"WebSocket message handler called for connection: {connection_id}")
     
     try:
+        # Parse incoming message
         body = json.loads(event.get('body', '{}'))
         action = body.get('action', '')
         prompt = body.get('prompt', '')
@@ -86,6 +95,7 @@ def message_handler(event, context):
         
         print(f"Action: {action}, Prompt: {prompt[:100] if prompt else 'none'}")
         
+        # Validate action
         if action != 'generate':
             send_message(connection_id, {
                 'type': 'error',
@@ -93,6 +103,7 @@ def message_handler(event, context):
             }, event)
             return {'statusCode': 400}
         
+        # Validate input
         validation_error = validate_input(prompt)
         if validation_error:
             send_message(connection_id, {
@@ -101,19 +112,20 @@ def message_handler(event, context):
             }, event)
             return {'statusCode': 400}
         
-        # Send start notification immediately
+        # Send start notification
+        print("Sending start message...")
         send_message(connection_id, {
             'type': 'start',
             'message': 'Generating contract...'
         }, event)
         
-        # Stream chunks in real-time
-        print("Starting real-time streaming...")
+        # Generate and stream content
+        print("Starting generation stream...")
         stream = generate_contract_streaming(prompt, target_pages)
         
         accumulated = ""
         chunk_buffer = ""
-        CHUNK_SIZE = 50  # Characters per chunk
+        CHUNK_SIZE = 100  # Send every 100 characters
         
         try:
             with stream as s:
@@ -121,12 +133,17 @@ def message_handler(event, context):
                     chunk_buffer += text
                     accumulated += text
                     
-                    # Send chunks when buffer reaches size
+                    # Send chunks periodically
                     if len(chunk_buffer) >= CHUNK_SIZE:
-                        send_message(connection_id, {
+                        success = send_message(connection_id, {
                             'type': 'chunk',
                             'content': chunk_buffer
                         }, event)
+                        
+                        if not success:
+                            print("Failed to send chunk, client may have disconnected")
+                            break
+                            
                         chunk_buffer = ""
                 
                 # Send remaining buffer
@@ -138,13 +155,15 @@ def message_handler(event, context):
         
         except Exception as stream_error:
             print(f"Streaming error: {str(stream_error)}")
+            traceback.print_exc()
             send_message(connection_id, {
                 'type': 'error',
                 'error': f'Streaming error: {str(stream_error)}'
             }, event)
             return {'statusCode': 500}
         
-        # Send completion
+        # Send completion message
+        print(f"Generation complete. Total length: {len(accumulated)}")
         send_message(connection_id, {
             'type': 'complete',
             'message': 'Contract generated successfully',
@@ -154,7 +173,6 @@ def message_handler(event, context):
             }
         }, event)
         
-        print(f"Streaming complete. Total length: {len(accumulated)}")
         return {'statusCode': 200}
         
     except json.JSONDecodeError as e:
@@ -167,12 +185,11 @@ def message_handler(event, context):
         
     except Exception as e:
         print(f"Error in message handler: {str(e)}")
-        import traceback
         traceback.print_exc()
         
         send_message(connection_id, {
             'type': 'error',
-            'error': str(e)
+            'error': f'Internal error: {str(e)}'
         }, event)
         return {'statusCode': 500}
 

@@ -5,7 +5,7 @@ Description: AI Contract Generator Backend with WebSocket
 Globals:
   Function:
     Timeout: 900
-    MemorySize: 2048
+    MemorySize: 3008
     Runtime: python3.11
     Environment:
       Variables:
