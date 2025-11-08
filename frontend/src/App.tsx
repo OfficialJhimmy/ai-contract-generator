@@ -1,10 +1,30 @@
-import React, { useEffect, useRef, useState } from "react"
-import { Loader2, FileDown, AlertCircle, CheckCircle2, Zap, Menu, X, Plus, Sun, Moon } from "lucide-react"
-import { useWebSocket } from "./hooks/useWebSocket"
-import { exportToWord, exportToPDF } from "./lib/export"
-import { formatWordCount, formatPageCount, stripHtmlTags, cn, cleanContractHtml } from "./lib/utils"
-import { ConversationHistory, type Conversation } from "./components/ConversationHistory"
-import { ContractPreview } from "./components/ContractPreview"
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Loader2,
+  FileDown,
+  AlertCircle,
+  CheckCircle2,
+  Zap,
+  Menu,
+  X,
+  Plus,
+  Sun,
+  Moon,
+} from "lucide-react";
+import { useWebSocket } from "./hooks/useWebSocket";
+import { exportToWord, exportToPDF } from "./lib/export";
+import {
+  formatWordCount,
+  formatPageCount,
+  stripHtmlTags,
+  cn,
+  cleanContractHtml,
+} from "./lib/utils";
+import {
+  ConversationHistory,
+  type Conversation,
+} from "./components/ConversationHistory";
+import { ContractPreview } from "./components/ContractPreview";
 
 // First Read Brand Colors (extracted from website)
 const BRAND_COLORS = {
@@ -12,302 +32,327 @@ const BRAND_COLORS = {
   secondary: "#7c3aed", // Purple
   accent: "#06b6d4", // Cyan
   dark: "#0f172a", // Slate 900
-  lightBg: "#f8fafc" // Slate 50
-}
+  lightBg: "#f8fafc", // Slate 50
+};
 
 // WebSocket URL - Replace with your actual URL
-const WS_URL = import.meta.env.VITE_WS_URL || "wss://lmmxz22twa.execute-api.us-east-1.amazonaws.com/prod"
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  "wss://lmmxz22twa.execute-api.us-east-1.amazonaws.com/prod";
 
 const QUICK_PROMPTS = [
   "Draft an NDA between SaaS firms",
   "Consulting agreement (hourly)",
   "Mutual non-disparagement clause",
-  "Termination & liability cap"
-]
+  "Termination & liability cap",
+];
 
 function App(): JSX.Element {
   // Theme
   const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem("theme")
-    return saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)
-  })
-  
+    const saved = localStorage.getItem("theme");
+    return (
+      saved === "dark" ||
+      (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)
+    );
+  });
+
   // Sidebar
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
   // Inputs
   const [prompt, setPrompt] = useState(
     "Draft Terms of Service for a cloud cyber SaaS company based in New York."
-  )
-  const [targetPages, setTargetPages] = useState(10)
+  );
+  const [targetPages, setTargetPages] = useState(10);
 
   // WebSocket / generation state
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedContent, setGeneratedContent] = useState("")
-  const [displayContent, setDisplayContent] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState("");
+  const [displayContent, setDisplayContent] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Conversation history
   const [conversations, setConversations] = useState<Conversation[]>(() => {
-    const saved = localStorage.getItem("conversations")
-    return saved ? JSON.parse(saved) : []
-  })
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
+    const saved = localStorage.getItem("conversations");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
 
-  const { status, connect, disconnect, sendMessage, onMessage } = useWebSocket(WS_URL)
+  const { status, connect, disconnect, sendMessage, onMessage } =
+    useWebSocket(WS_URL);
 
   // Refs
-  const outputRef = useRef<HTMLDivElement | null>(null)
-  const typingIntervalRef = useRef<number | null>(null)
-  const displayIndexRef = useRef(0)
+  const outputRef = useRef<HTMLDivElement | null>(null);
+  const typingIntervalRef = useRef<number | null>(null);
+  const displayIndexRef = useRef(0);
 
   // Theme effect
   useEffect(() => {
     if (isDark) {
-      document.documentElement.classList.add("dark")
-      localStorage.setItem("theme", "dark")
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
     } else {
-      document.documentElement.classList.remove("dark")
-      localStorage.setItem("theme", "light")
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
     }
-  }, [isDark])
+  }, [isDark]);
 
   // Save conversations to localStorage
   useEffect(() => {
-    localStorage.setItem("conversations", JSON.stringify(conversations))
-  }, [conversations])
+    localStorage.setItem("conversations", JSON.stringify(conversations));
+  }, [conversations]);
 
   // Connect WebSocket on mount
   useEffect(() => {
-    connect()
+    connect();
     return () => {
-      disconnect()
-    }
-  }, [connect, disconnect])
+      disconnect();
+    };
+  }, [connect, disconnect]);
 
   // Utility function to clean markdown code fences
   const cleanMarkdownFences = (content: string): string => {
     // Remove ```html, ```xml, ``` and other code fence markers
     let cleaned = content
-      .replace(/^```[\w]*\n?/gm, '')  // Remove opening code fences
-      .replace(/\n?```$/gm, '')        // Remove closing code fences
-      .replace(/```\n?/g, '')          // Remove any remaining ``` markers
-      .trim()
-    
+      .replace(/^```[\w]*\n?/gm, "") // Remove opening code fences
+      .replace(/\n?```$/gm, "") // Remove closing code fences
+      .replace(/```\n?/g, "") // Remove any remaining ``` markers
+      .trim();
+
     // Also clean the HTML to remove style tags
-    cleaned = cleanContractHtml(cleaned)
-    
-    return cleaned
-  }
+    cleaned = cleanContractHtml(cleaned);
+
+    return cleaned;
+  };
 
   // Handle incoming WebSocket messages
   useEffect(() => {
     onMessage((message: any) => {
-      console.log("📨 WS message:", message)
+      console.log("📨 WS message:", message);
 
       if (!message || typeof message !== "object") {
-        console.warn("Unexpected message shape:", message)
-        return
+        console.warn("Unexpected message shape:", message);
+        return;
       }
 
-      const type = message.type
+      const type = message.type;
 
       if (type === "start") {
-        setIsGenerating(true)
-        setError(null)
-        setSuccess(false)
-        setGeneratedContent("")
-        setDisplayContent("")
-        displayIndexRef.current = 0
+        setIsGenerating(true);
+        setError(null);
+        setSuccess(false);
+        setGeneratedContent("");
+        setDisplayContent("");
+        displayIndexRef.current = 0;
       } else if (type === "chunk") {
-        const chunk = message.content || ""
+        const chunk = message.content || "";
         // Clean each chunk as it arrives
         setGeneratedContent((prev) => {
-          const combined = prev + chunk
-          return cleanMarkdownFences(combined)
-        })
+          const combined = prev + chunk;
+          return cleanMarkdownFences(combined);
+        });
       } else if (type === "content") {
-        const content = message.content || ""
-        setGeneratedContent(cleanMarkdownFences(content))
+        const content = message.content || "";
+        setGeneratedContent(cleanMarkdownFences(content));
       } else if (type === "complete") {
-        setIsGenerating(false)
-        setSuccess(true)
-        
+        setIsGenerating(false);
+        setSuccess(true);
+
         // Clean the final content before saving
         setGeneratedContent((prev) => {
-          const finalContent = cleanMarkdownFences(prev)
-          
+          const finalContent = cleanMarkdownFences(prev);
+
           // Save to conversation history with cleaned content
           const newConversation: Conversation = {
             id: Date.now().toString(),
             prompt: prompt,
             contract: finalContent,
-            timestamp: Date.now()
-          }
-          setConversations(convs => [newConversation, ...convs])
-          setCurrentConversationId(newConversation.id)
-          
-          return finalContent
-        })
+            timestamp: Date.now(),
+          };
+          setConversations((convs) => [newConversation, ...convs]);
+          setCurrentConversationId(newConversation.id);
+
+          return finalContent;
+        });
       } else if (type === "error") {
-        setIsGenerating(false)
-        setError(message.error || "An error occurred during generation")
+        setIsGenerating(false);
+        setError(message.error || "An error occurred during generation");
       }
-    })
-  }, [onMessage, prompt])
+    });
+  }, [onMessage, prompt]);
 
   // FIXED TYPING EFFECT - Character by character, no duplication
   useEffect(() => {
     if (typingIntervalRef.current) {
-      window.clearInterval(typingIntervalRef.current)
+      window.clearInterval(typingIntervalRef.current);
     }
 
     if (!generatedContent) {
-      displayIndexRef.current = 0
-      setDisplayContent("")
-      return
+      displayIndexRef.current = 0;
+      setDisplayContent("");
+      return;
     }
 
     // If we've already displayed all content, don't restart
     if (displayIndexRef.current >= generatedContent.length) {
-      return
+      return;
     }
 
-    const TYPING_SPEED_MS = 8 // Very fast for production
+    const TYPING_SPEED_MS = 8; // Very fast for production
 
     typingIntervalRef.current = window.setInterval(() => {
-      displayIndexRef.current += 1
-      
+      displayIndexRef.current += 1;
+
       if (displayIndexRef.current <= generatedContent.length) {
-        setDisplayContent(generatedContent.substring(0, displayIndexRef.current))
+        setDisplayContent(
+          generatedContent.substring(0, displayIndexRef.current)
+        );
       } else {
         // Done typing
         if (typingIntervalRef.current) {
-          window.clearInterval(typingIntervalRef.current)
-          typingIntervalRef.current = null
+          window.clearInterval(typingIntervalRef.current);
+          typingIntervalRef.current = null;
         }
       }
-    }, TYPING_SPEED_MS)
+    }, TYPING_SPEED_MS);
 
     return () => {
       if (typingIntervalRef.current) {
-        window.clearInterval(typingIntervalRef.current)
+        window.clearInterval(typingIntervalRef.current);
       }
-    }
-  }, [generatedContent])
+    };
+  }, [generatedContent]);
 
   // Auto-scroll
   useEffect(() => {
     if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [displayContent])
+  }, [displayContent]);
 
   // Handlers
   const handleGenerate = () => {
-    setError(null)
-    setSuccess(false)
+    setError(null);
+    setSuccess(false);
 
     if (!prompt.trim()) {
-      setError("Please enter a prompt")
-      return
+      setError("Please enter a prompt");
+      return;
     }
 
     if (status !== "connected") {
-      setError("Not connected to server. Retrying...")
-      connect()
-      return
+      setError("Not connected to server. Retrying...");
+      connect();
+      return;
     }
 
-    console.log("🚀 Sending generation request")
+    console.log("🚀 Sending generation request");
     const sent = sendMessage({
       action: "generate",
       prompt: prompt.trim(),
-      target_pages: targetPages
-    })
+      target_pages: targetPages,
+    });
 
     if (!sent) {
-      setError("Failed to send request to server. Please try again.")
+      setError("Failed to send request to server. Please try again.");
     }
-  }
+  };
 
   const handleExport = async (format: "word" | "pdf") => {
     if (!displayContent) {
-      setError("No content to export")
-      return
+      setError("No content to export");
+      return;
     }
-    setIsExporting(true)
+    setIsExporting(true);
     try {
-      const filename = `contract-${Date.now()}.${format === "word" ? "docx" : "pdf"}`
+      const filename = `contract-${Date.now()}.${
+        format === "word" ? "docx" : "pdf"
+      }`;
       if (format === "word") {
-        await exportToWord(displayContent, filename)
+        await exportToWord(displayContent, filename);
       } else {
-        await exportToPDF(displayContent, filename)
+        await exportToPDF(displayContent, filename);
       }
     } catch (err) {
-      console.error(err)
-      setError(`Failed to export to ${format.toUpperCase()}`)
+      console.error(err);
+      setError(`Failed to export to ${format.toUpperCase()}`);
     } finally {
-      setIsExporting(false)
+      setIsExporting(false);
     }
-  }
+  };
 
   const handleNewConversation = () => {
-    setPrompt("")
-    setGeneratedContent("")
-    setDisplayContent("")
-    setSuccess(false)
-    setError(null)
-    setCurrentConversationId(null)
-    displayIndexRef.current = 0
-  }
+    setPrompt("");
+    setGeneratedContent("");
+    setDisplayContent("");
+    setSuccess(false);
+    setError(null);
+    setCurrentConversationId(null);
+    displayIndexRef.current = 0;
+  };
 
   const handleLoadConversation = (conversation: Conversation) => {
-    setPrompt(conversation.prompt)
-    setGeneratedContent(conversation.contract)
-    setDisplayContent(conversation.contract)
-    setCurrentConversationId(conversation.id)
-    setSuccess(true)
-    displayIndexRef.current = conversation.contract.length
-  }
+    setPrompt(conversation.prompt);
+    setGeneratedContent(conversation.contract);
+    setDisplayContent(conversation.contract);
+    setCurrentConversationId(conversation.id);
+    setSuccess(true);
+    displayIndexRef.current = conversation.contract.length;
+  };
 
   const handleDeleteConversation = (id: string) => {
-    setConversations(prev => prev.filter(c => c.id !== id))
+    setConversations((prev) => prev.filter((c) => c.id !== id));
     if (currentConversationId === id) {
-      handleNewConversation()
+      handleNewConversation();
     }
-  }
+  };
 
-  const wordCount = displayContent ? formatWordCount(stripHtmlTags(displayContent)) : 0
-  const pageCount = formatPageCount(wordCount)
+  const wordCount = displayContent
+    ? formatWordCount(stripHtmlTags(displayContent))
+    : 0;
+  const pageCount = formatPageCount(wordCount);
 
   return (
-    <div className={cn(
-      "min-h-screen flex transition-colors duration-200",
-      isDark ? "bg-gray-950" : "bg-gradient-to-br from-blue-50 via-white to-purple-50"
-    )}>
+    <div
+      className={cn(
+        "min-h-screen flex transition-colors duration-200",
+        isDark
+          ? "bg-gray-950"
+          : "bg-gradient-to-br from-blue-50 via-white to-purple-50"
+      )}
+    >
       {/* Sidebar */}
-      <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out",
-        isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200",
-        "border-r w-80",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full", "lg:translate-x-0"
-      )}>
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out",
+          isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200",
+          "border-r w-72 sm:w-80",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full",
+          "lg:translate-x-0"
+        )}
+      >
         <div className="flex items-center justify-between p-4 border-b border-inherit">
           <div className="flex items-center gap-3">
-            <div 
-              className="w-[50px] h-10 rounded-xl flex items-center justify-center"
-            >
+            <div className="w-[50px] h-10 rounded-xl flex items-center justify-center">
               <img src="./first-read-logo.png" alt="First Read Logo" />
             </div>
             <div>
-              <h2 className={cn("text-2xl", isDark ? "text-white" : "text-black")}>FirstRead</h2>
-              <p className={cn(
-                "text-xs",
-                isDark ? "text-gray-400" : "text-gray-600"
-              )}>
+              <h2
+                className={cn("text-2xl", isDark ? "text-white" : "text-black")}
+              >
+                FirstRead
+              </h2>
+              <p
+                className={cn(
+                  "text-xs",
+                  isDark ? "text-gray-400" : "text-gray-600"
+                )}
+              >
                 Contract Generator
               </p>
             </div>
@@ -316,10 +361,14 @@ function App(): JSX.Element {
             onClick={() => setSidebarOpen(false)}
             className={cn(
               "lg:hidden p-2 rounded-lg",
-              isDark ? "hover:bg-gray-800 text-white" : "hover:bg-gray-100 text-white"
+              isDark
+                ? "hover:bg-gray-800 text-white"
+                : "hover:bg-gray-100 text-white"
             )}
           >
-            <X className={cn("w-5 h-5", isDark ? "text-white" : "text-black")} />
+            <X
+              className={cn("w-5 h-5", isDark ? "text-white" : "text-black")}
+            />
           </button>
         </div>
 
@@ -348,10 +397,12 @@ function App(): JSX.Element {
 
         <div className="mt-auto p-4 border-t border-inherit">
           <div className="flex items-center justify-between">
-            <span className={cn(
-              "text-xs",
-              isDark ? "text-gray-400" : "text-gray-600"
-            )}>
+            <span
+              className={cn(
+                "text-xs",
+                isDark ? "text-gray-400" : "text-gray-600"
+              )}
+            >
               {status === "connected" ? "🟢 Connected" : "🔴 Disconnected"}
             </span>
             <button
@@ -361,7 +412,11 @@ function App(): JSX.Element {
                 isDark ? "hover:bg-gray-800 text-white" : "hover:bg-gray-100"
               )}
             >
-              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDark ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
             </button>
           </div>
         </div>
@@ -376,11 +431,15 @@ function App(): JSX.Element {
       )}
 
       {/* Main Content */}
-      <main className={cn(
-        "flex-1 transition-all duration-300",
-        sidebarOpen ? "lg:ml-80" : "ml-0", "lg:ml-80"
-      )}>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-2 py-8">
+      <main
+        className={cn(
+          "flex-1 transition-all duration-300",
+          sidebarOpen ? "lg:ml-80" : "ml-0",
+          "lg:ml-80"
+        )}
+      >
+        <div className="max-w-full lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+          {" "}
           {/* Header */}
           <header className="mb-8">
             <div className="flex items-center justify-between mb-6">
@@ -391,17 +450,24 @@ function App(): JSX.Element {
                   isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"
                 )}
               >
-                <Menu className={cn("w-6 h-6", isDark ? "text-white" : "text-black")} />
+                <Menu
+                  className={cn(
+                    "w-6 h-6",
+                    isDark ? "text-white" : "text-black"
+                  )}
+                />
               </button>
-              
+
               <div className="flex items-center gap-2 text-sm">
-                <div className={cn(
-                  "w-2 h-2 rounded-full",
-                  status === "connected" && "bg-green-500 animate-pulse",
-                  status === "connecting" && "bg-yellow-500 animate-pulse",
-                  status === "disconnected" && "bg-gray-400",
-                  status === "error" && "bg-red-500"
-                )} />
+                <div
+                  className={cn(
+                    "w-2 h-2 rounded-full",
+                    status === "connected" && "bg-green-500 animate-pulse",
+                    status === "connecting" && "bg-yellow-500 animate-pulse",
+                    status === "disconnected" && "bg-gray-400",
+                    status === "error" && "bg-red-500"
+                  )}
+                />
                 <span className={isDark ? "text-gray-400" : "text-gray-600"}>
                   {status === "connected" && "Connected"}
                   {status === "connecting" && "Connecting..."}
@@ -412,30 +478,34 @@ function App(): JSX.Element {
             </div>
 
             <div className="text-center mb-6">
-              <h1 
+              <h1
                 className="text-4xl font-bold mb-2"
                 style={{
                   background: `linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%)`,
                   WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent"
+                  WebkitTextFillColor: "transparent",
                 }}
               >
                 AI Contract Generator
               </h1>
-              <p className={cn(
-                "text-lg",
-                isDark ? "text-gray-400" : "text-gray-600"
-              )}>
+              <p
+                className={cn(
+                  "text-lg",
+                  isDark ? "text-gray-400" : "text-gray-600"
+                )}
+              >
                 Generate professional legal contracts in seconds
               </p>
             </div>
 
             {/* Quick Prompts */}
             <div className="mb-6">
-              <h3 className={cn(
-                "text-sm font-medium mb-3",
-                isDark ? "text-gray-400" : "text-gray-700"
-              )}>
+              <h3
+                className={cn(
+                  "text-sm font-medium mb-3",
+                  isDark ? "text-gray-400" : "text-gray-700"
+                )}
+              >
                 Quick prompts:
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -456,12 +526,15 @@ function App(): JSX.Element {
               </div>
             </div>
           </header>
-
           {/* Input Area */}
-          <div className={cn(
-            "rounded-2xl shadow-xl border p-8 mb-8",
-            isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-100"
-          )}>
+          <div
+            className={cn(
+              "rounded-2xl shadow-xl border p-8 mb-8",
+              isDark
+                ? "bg-gray-900 border-gray-800"
+                : "bg-white border-gray-100"
+            )}
+          >
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -474,7 +547,7 @@ function App(): JSX.Element {
               )}
             />
 
-            <div className="mt-6 flex items-center justify-between">
+            <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-0 justify-between">
               {/* <div className="flex items-center gap-4">
                 <label className={cn(
                   "text-sm",
@@ -518,7 +591,7 @@ function App(): JSX.Element {
                 onClick={handleGenerate}
                 disabled={isGenerating || status !== "connected"}
                 className={cn(
-                  "px-8 py-3 rounded-xl font-medium flex items-center gap-2 transition-all duration-200 cursor-pointer",
+                  "px-8 py-3 rounded-xl font-medium flex items-center gap-2 transition-all duration-200 cursor-pointer w-fit",
                   isGenerating || status !== "connected"
                     ? "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600"
                     : "text-white hover:shadow-lg hover:scale-105"
@@ -526,7 +599,7 @@ function App(): JSX.Element {
                 style={
                   !(isGenerating || status !== "connected")
                     ? {
-                        background: `linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%)`
+                        background: `linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%)`,
                       }
                     : undefined
                 }
@@ -537,60 +610,68 @@ function App(): JSX.Element {
                     Generating...
                   </>
                 ) : (
-                  <>
-                    Generate Contract
-                  </>
+                  <>Generate Contract</>
                 )}
               </button>
             </div>
           </div>
-
           {/* Error Message */}
           {error && (
-            <div className={cn(
-              "mb-8 rounded-xl p-4 flex items-start gap-3 border",
-              isDark
-                ? "bg-red-900/20 border-red-800"
-                : "bg-red-50 border-red-200"
-            )}>
+            <div
+              className={cn(
+                "mb-8 rounded-xl p-4 flex items-start gap-3 border",
+                isDark
+                  ? "bg-red-900/20 border-red-800"
+                  : "bg-red-50 border-red-200"
+              )}
+            >
               <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className={cn(
-                  "font-medium",
-                  isDark ? "text-red-400" : "text-red-800"
-                )}>
+                <p
+                  className={cn(
+                    "font-medium",
+                    isDark ? "text-red-400" : "text-red-800"
+                  )}
+                >
                   Error
                 </p>
-                <p className={cn(
-                  "text-sm",
-                  isDark ? "text-red-300" : "text-red-600"
-                )}>
+                <p
+                  className={cn(
+                    "text-sm",
+                    isDark ? "text-red-300" : "text-red-600"
+                  )}
+                >
                   {error}
                 </p>
               </div>
             </div>
           )}
-
           {/* Success Message */}
           {success && !isGenerating && displayContent && (
-            <div className={cn(
-              "mb-8 rounded-xl p-4 flex items-start gap-3 border",
-              isDark
-                ? "bg-green-900/20 border-green-800"
-                : "bg-green-50 border-green-200"
-            )}>
+            <div
+              className={cn(
+                "mb-8 rounded-xl p-4 flex items-start gap-3 border",
+                isDark
+                  ? "bg-green-900/20 border-green-800"
+                  : "bg-green-50 border-green-200"
+              )}
+            >
               <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className={cn(
-                  "font-medium",
-                  isDark ? "text-green-400" : "text-green-800"
-                )}>
+                <p
+                  className={cn(
+                    "font-medium",
+                    isDark ? "text-green-400" : "text-green-800"
+                  )}
+                >
                   Contract generated successfully!
                 </p>
-                <p className={cn(
-                  "text-sm",
-                  isDark ? "text-green-300" : "text-green-600"
-                )}>
+                <p
+                  className={cn(
+                    "text-sm",
+                    isDark ? "text-green-300" : "text-green-600"
+                  )}
+                >
                   {wordCount.toLocaleString()} words • ~{pageCount} pages
                 </p>
               </div>
@@ -614,7 +695,6 @@ function App(): JSX.Element {
               </div>
             </div>
           )}
-
           {/* Contract Preview */}
           <ContractPreview
             ref={outputRef}
@@ -625,7 +705,7 @@ function App(): JSX.Element {
         </div>
       </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
