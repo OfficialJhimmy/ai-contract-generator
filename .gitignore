@@ -13,6 +13,7 @@ __pycache__/
 dist/
 build/
 .aws-sam/
+frontend/dist/
 
 # IDE
 .vscode/
@@ -30,3 +31,9 @@ npm-debug.log*
 
 # AWS
 .aws-sam/
+
+# Python
+*.py[cod]
+*$py.class
+*.so
+.Python
