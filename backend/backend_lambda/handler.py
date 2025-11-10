@@ -76,26 +76,45 @@ def build_contract_prompt(user_input: str, target_pages: int = 10) -> tuple:
 
 CRITICAL REQUIREMENTS:
 1. Start generating IMMEDIATELY - begin with the contract title
-2. Use proper legal structure and terminology
-3. Output ONLY valid HTML - no markdown, no explanations
-4. Use semantic HTML: <h1>, <h2>, <h3>, <p>, <ol>, <ul>
-5. Include inline CSS for professional styling
-6. Make it print-ready
+2. Generate a COMPLETE contract - ALL sections must be included
+3. Prioritize COMPLETENESS over excessive detail in any one section
+4. Use proper legal structure and terminology
+5. Output ONLY valid HTML - no markdown, no explanations
+6. Use semantic HTML: <h1>, <h2>, <h3>, <p>, <ol>, <ul>
+7. Include inline CSS for professional styling
+8. Make it print-ready
 
-STRUCTURE (generate in this order):
-1. Title and Header
-2. Parties to Agreement
+MANDATORY STRUCTURE - YOU MUST COMPLETE ALL SECTIONS:
+1. Document Title and Header
+2. Parties to the Agreement
 3. Recitals/Background
-4. Definitions
-5. Main Terms & Conditions
+4. Definitions (10-15 key terms)
+5. Scope of Services/Products
 6. Payment Terms
-7. Confidentiality
-8. Warranties
-9. Liability & Indemnification
-10. Term & Termination
-11. Dispute Resolution
-12. General Provisions
-13. Signature Blocks
+7. Term and Termination
+8. Intellectual Property Rights
+9. Confidentiality
+10. Warranties and Representations
+11. Limitation of Liability
+12. Indemnification
+13. Dispute Resolution
+14. Governing Law and Jurisdiction
+15. General Provisions:
+    - Assignment
+    - Notices
+    - Severability
+    - Entire Agreement
+    - Amendments
+    - Waiver
+    - Force Majeure
+16. Signature Blocks (MUST END WITH THIS)
+
+WRITING GUIDELINES:
+- Be concise but complete in each section
+- Use standard legal language
+- Aim for 3,000-4,000 words total
+- CRITICAL: Ensure you reach the Signature Blocks at the end
+- Do not stop early - complete the entire document
 
 STYLING:
 - Professional typography (serif fonts)
@@ -108,6 +127,12 @@ START GENERATING IMMEDIATELY with the HTML."""
     user_prompt = f"""Generate a legal contract: {user_input}
 
 Target length: ~{target_pages} pages ({target_pages * 500} words)
+
+CRITICAL INSTRUCTIONS:
+- Generate ALL 16 sections listed in the system prompt
+- Be thorough but concise to ensure completeness
+- MUST end with Signature Blocks
+- Do not stop before completing all sections
 
 Begin the HTML NOW:"""
 
