@@ -304,7 +304,7 @@ _api_key_cache = None
 MAX_RETRIES = 2
 RETRY_DELAY = 1
 MODEL = "claude-sonnet-4-5-20250929"  # Stable, reliable model
-MAX_TOKENS = 8000  # Large enough for complete contracts
+MAX_TOKENS = 4000  # Large enough for complete contracts
 TEMPERATURE = 0.4  # Lower = more focused, completes faster
 CHUNK_SIZE = 100 
 
